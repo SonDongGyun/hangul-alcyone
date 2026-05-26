@@ -2,26 +2,18 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { stages } from "@/game/stage";
-import { detectMatches, matchKey } from "@/game/match";
+import { detectMatches } from "@/game/match";
 import { wordIndex } from "@/game/dictionary";
 import { CATEGORY_LABEL, type Cell, type Match, type Stage } from "@/game/types";
 
 interface Discovered {
   word: string;
   at: number;
-  depth: number;
-  multiplier: number;
   points: number;
 }
 
-const CHAIN_DELAY_MS = 480;
-const CLEAR_PAUSE_MS = 220;
-const MAX_CHAIN_DEPTH = 5;
+const CLEAR_DELAY_MS = 480;
 
-const COMBO_MULTIPLIER = [1.0, 1.0, 1.5, 2.0, 3.0, 5.0];
-function multiplierFor(depth: number): number {
-  return COMBO_MULTIPLIER[Math.min(depth, COMBO_MULTIPLIER.length - 1)];
-}
 function basePointsFor(word: string): number {
   const w = wordIndex.get(word);
   return w ? 50 + (w.syllables.length - 2) * 50 : 0;
@@ -29,12 +21,6 @@ function basePointsFor(word: string): number {
 
 function cellKey(c: number, r: number) {
   return `${c}:${r}`;
-}
-
-function areAdjacent(a: Cell, b: Cell) {
-  const dc = Math.abs(a.col - b.col);
-  const dr = Math.abs(a.row - b.row);
-  return dc + dr === 1;
 }
 
 function clearMatched(board: string[], cols: number, matches: Match[]): string[] {
@@ -94,37 +80,19 @@ interface StageRunnerProps {
 function StageRunner({ stage, stageIndex, totalStages, onAdvance }: StageRunnerProps) {
   const { cols, rows, refillPool } = stage;
   const targetWords = stage.targetWords ?? [];
+  const targetSet = useMemo(() => new Set(targetWords), [targetWords]);
 
   const [board, setBoard] = useState<string[]>(stage.board);
   const [selected, setSelected] = useState<Cell | null>(null);
   const [discovered, setDiscovered] = useState<Discovered[]>([]);
   const [activeMatches, setActiveMatches] = useState<Match[]>([]);
-  const [rejectKey, setRejectKey] = useState<string | null>(null);
-  const [comboDepth, setComboDepth] = useState(0);
-  const knownMatchKeys = useRef<Set<string>>(new Set());
   const refillIndex = useRef(0);
-  const chainTimer = useRef<number | null>(null);
+  const clearTimer = useRef<number | null>(null);
   const isResolving = useRef(false);
 
   useEffect(() => {
-    const initial = detectMatches(stage.board, cols, rows);
-    setActiveMatches(initial);
-    initial.forEach((m) => knownMatchKeys.current.add(matchKey(m)));
-    const mult = multiplierFor(1);
-    setDiscovered(
-      initial.map((m) => ({
-        word: m.word,
-        at: Date.now(),
-        depth: 1,
-        multiplier: mult,
-        points: Math.round(basePointsFor(m.word) * mult),
-      })),
-    );
-  }, [stage.board, cols, rows]);
-
-  useEffect(() => {
     return () => {
-      if (chainTimer.current !== null) window.clearTimeout(chainTimer.current);
+      if (clearTimer.current !== null) window.clearTimeout(clearTimer.current);
     };
   }, []);
 
@@ -146,85 +114,55 @@ function StageRunner({ stage, stageIndex, totalStages, onAdvance }: StageRunnerP
     targetWords.length > 0 && foundCount === targetWords.length;
   const isLastStage = stageIndex >= totalStages - 1;
 
-  const addDiscovered = useCallback((matches: Match[], depth: number) => {
-    if (!matches.length) return;
-    const mult = multiplierFor(depth);
-    setDiscovered((d) => {
-      const seen = new Set(d.map((x) => x.word));
-      const adds = matches
-        .filter((m) => !seen.has(m.word))
-        .map((m) => ({
-          word: m.word,
-          at: Date.now(),
-          depth,
-          multiplier: mult,
-          points: Math.round(basePointsFor(m.word) * mult),
-        }));
-      return adds.length ? [...d, ...adds] : d;
-    });
-  }, []);
-
-  const runChainStep = useCallback(
-    (currentBoard: string[], toClear: Match[], depth: number) => {
-      for (const m of toClear) knownMatchKeys.current.delete(matchKey(m));
-      const cleared = clearMatched(currentBoard, cols, toClear);
-      const dropped = applyGravity(cleared, cols, rows);
-      const { board: filled, nextIndex } = refillTop(
-        dropped,
-        cols,
-        rows,
-        refillPool,
-        refillIndex.current,
-      );
-      refillIndex.current = nextIndex;
-      setBoard(filled);
-      setActiveMatches([]);
-
-      chainTimer.current = window.setTimeout(() => {
-        const newMatches = detectMatches(filled, cols, rows);
-        if (newMatches.length === 0 || depth >= MAX_CHAIN_DEPTH) {
-          newMatches.forEach((m) => knownMatchKeys.current.add(matchKey(m)));
-          setComboDepth(0);
-          isResolving.current = false;
-          return;
-        }
-        newMatches.forEach((m) => knownMatchKeys.current.add(matchKey(m)));
-        setActiveMatches(newMatches);
-        addDiscovered(newMatches, depth + 1);
-        setComboDepth(depth + 1);
-        chainTimer.current = window.setTimeout(
-          () => runChainStep(filled, newMatches, depth + 1),
-          CHAIN_DELAY_MS,
-        );
-      }, CLEAR_PAUSE_MS);
-    },
-    [cols, rows, refillPool, addDiscovered],
-  );
-
-  const tryMatchOrRevert = useCallback(
-    (next: string[], swappedA: Cell) => {
-      const all = detectMatches(next, cols, rows);
-      const fresh = all.filter((m) => !knownMatchKeys.current.has(matchKey(m)));
-
-      if (fresh.length === 0) {
-        setRejectKey(cellKey(swappedA.col, swappedA.row));
-        window.setTimeout(() => setRejectKey(null), 280);
-        return;
-      }
-
-      fresh.forEach((m) => knownMatchKeys.current.add(matchKey(m)));
+  const tryFormWord = useCallback(
+    (next: string[], a: Cell, b: Cell) => {
       setBoard(next);
-      setActiveMatches(all);
-      addDiscovered(fresh, 1);
-      isResolving.current = true;
-      setComboDepth(1);
 
-      chainTimer.current = window.setTimeout(
-        () => runChainStep(next, fresh, 1),
-        CHAIN_DELAY_MS,
+      const all = detectMatches(next, cols, rows);
+      const fresh = all.filter(
+        (m) =>
+          targetSet.has(m.word) &&
+          !discoveredSet.has(m.word) &&
+          m.cells.some(
+            (c) =>
+              (c.col === a.col && c.row === a.row) ||
+              (c.col === b.col && c.row === b.row),
+          ),
       );
+
+      if (fresh.length === 0) return;
+
+      setActiveMatches(fresh);
+      setDiscovered((d) => {
+        const seen = new Set(d.map((x) => x.word));
+        const adds = fresh
+          .filter((m) => !seen.has(m.word))
+          .map((m) => ({
+            word: m.word,
+            at: Date.now(),
+            points: basePointsFor(m.word),
+          }));
+        return adds.length ? [...d, ...adds] : d;
+      });
+      isResolving.current = true;
+
+      clearTimer.current = window.setTimeout(() => {
+        const cleared = clearMatched(next, cols, fresh);
+        const dropped = applyGravity(cleared, cols, rows);
+        const { board: filled, nextIndex } = refillTop(
+          dropped,
+          cols,
+          rows,
+          refillPool,
+          refillIndex.current,
+        );
+        refillIndex.current = nextIndex;
+        setBoard(filled);
+        setActiveMatches([]);
+        isResolving.current = false;
+      }, CLEAR_DELAY_MS);
     },
-    [cols, rows, addDiscovered, runChainStep],
+    [cols, rows, refillPool, targetSet, discoveredSet],
   );
 
   const onTileClick = useCallback(
@@ -243,19 +181,16 @@ function StageRunner({ stage, stageIndex, totalStages, onAdvance }: StageRunnerP
         setSelected(null);
         return;
       }
-      if (!areAdjacent(selected, here)) {
-        setSelected(here);
-        return;
-      }
 
-      const a = selected.row * cols + selected.col;
-      const b = row * cols + col;
+      const ai = selected.row * cols + selected.col;
+      const bi = row * cols + col;
       const next = board.slice();
-      [next[a], next[b]] = [next[b], next[a]];
+      [next[ai], next[bi]] = [next[bi], next[ai]];
+      const from = selected;
       setSelected(null);
-      tryMatchOrRevert(next, selected);
+      tryFormWord(next, from, here);
     },
-    [board, cols, selected, tryMatchOrRevert],
+    [board, cols, selected, tryFormWord],
   );
 
   const score = useMemo(
@@ -279,7 +214,7 @@ function StageRunner({ stage, stageIndex, totalStages, onAdvance }: StageRunnerP
             </span>
           </div>
           <p className="text-sm text-[color:var(--muted)] mt-1">
-            {stage.name} · 인접한 두 음절을 클릭해 단어를 만드세요
+            {stage.name} · 두 음절을 골라 자리를 바꿔 단어를 만드세요
           </p>
         </header>
 
@@ -296,7 +231,6 @@ function StageRunner({ stage, stageIndex, totalStages, onAdvance }: StageRunnerP
             const isSelected =
               selected?.col === col && selected?.row === row;
             const isMatched = matchedCells.has(cellKey(col, row));
-            const isReject = rejectKey === cellKey(col, row);
             return (
               <button
                 key={i}
@@ -309,7 +243,6 @@ function StageRunner({ stage, stageIndex, totalStages, onAdvance }: StageRunnerP
                     ? "border cursor-pointer"
                     : "border border-dashed opacity-30 cursor-default",
                   isMatched ? "tile-match" : "",
-                  isReject ? "tile-reject" : "",
                 ].join(" ")}
                 style={{
                   background: isSelected
@@ -426,22 +359,12 @@ function StageRunner({ stage, stageIndex, totalStages, onAdvance }: StageRunnerP
             <h2 className="text-sm font-medium tracking-wide uppercase text-[color:var(--muted)]">
               발견한 단어
             </h2>
-            <div className="flex items-baseline gap-2">
-              {comboDepth >= 2 && (
-                <span
-                  className="text-xs tracking-wide text-[color:var(--accent)]"
-                  style={{ fontFamily: "var(--font-serif)" }}
-                >
-                  연쇄 ×{comboDepth} · {multiplierFor(comboDepth).toFixed(1)}배
-                </span>
-              )}
-              <span
-                className="text-2xl font-bold"
-                style={{ fontFamily: "var(--font-serif)" }}
-              >
-                {score}
-              </span>
-            </div>
+            <span
+              className="text-2xl font-bold"
+              style={{ fontFamily: "var(--font-serif)" }}
+            >
+              {score}
+            </span>
           </div>
 
           {discovered.length === 0 ? (
@@ -462,18 +385,8 @@ function StageRunner({ stage, stageIndex, totalStages, onAdvance }: StageRunnerP
                         >
                           {d.word}
                         </span>
-                        <span className="flex items-baseline gap-1.5 text-xs">
-                          <span className="text-[color:var(--muted)]">
-                            +{d.points}
-                          </span>
-                          {d.depth >= 2 && (
-                            <span
-                              className="text-[color:var(--accent)]"
-                              style={{ fontFamily: "var(--font-serif)" }}
-                            >
-                              ×{d.multiplier.toFixed(1)}
-                            </span>
-                          )}
+                        <span className="text-xs text-[color:var(--muted)]">
+                          +{d.points}
                         </span>
                       </div>
                       <div className="text-[10px] uppercase tracking-wide text-[color:var(--muted)] mt-0.5">
@@ -492,7 +405,7 @@ function StageRunner({ stage, stageIndex, totalStages, onAdvance }: StageRunnerP
         </div>
 
         <p className="text-xs text-[color:var(--muted)] leading-relaxed">
-          MVP D1~D4 · 매칭 후 음절이 비고, 위에서 채워지며 연쇄가 일어납니다.
+          MVP D1~D4 · 두 칸을 골라 자리를 바꾸면 단어가 완성됩니다.
         </p>
       </aside>
     </div>
@@ -532,7 +445,7 @@ function LandingScreen({ onStart }: { onStart: () => void }) {
           시작
         </button>
         <p className="text-xs text-[color:var(--muted)] mt-2 leading-relaxed">
-          4단계 · 인접한 두 음절을 바꿔 단어를 만드세요
+          4단계 · 두 음절을 골라 자리를 바꿔 단어를 만드세요
         </p>
       </div>
     </div>
