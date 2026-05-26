@@ -16,6 +16,7 @@ interface Discovered {
 
 const CHAIN_DELAY_MS = 480;
 const CLEAR_PAUSE_MS = 220;
+const MAX_CHAIN_DEPTH = 5;
 
 const COMBO_MULTIPLIER = [1.0, 1.0, 1.5, 2.0, 3.0, 5.0];
 function multiplierFor(depth: number): number {
@@ -181,7 +182,8 @@ function StageRunner({ stage, stageIndex, totalStages, onAdvance }: StageRunnerP
 
       chainTimer.current = window.setTimeout(() => {
         const newMatches = detectMatches(filled, cols, rows);
-        if (newMatches.length === 0) {
+        if (newMatches.length === 0 || depth >= MAX_CHAIN_DEPTH) {
+          newMatches.forEach((m) => knownMatchKeys.current.add(matchKey(m)));
           setComboDepth(0);
           isResolving.current = false;
           return;
@@ -349,7 +351,7 @@ function StageRunner({ stage, stageIndex, totalStages, onAdvance }: StageRunnerP
           {targetWords.length === 0 ? (
             <p className="text-sm text-[color:var(--muted)]">목표 없음</p>
           ) : (
-            <ul className="space-y-1.5">
+            <ul className="space-y-1.5 max-h-56 overflow-y-auto pr-1">
               {targetWords.map((word) => {
                 const entry = wordIndex.get(word);
                 const sylCount = entry?.syllables.length ?? word.length;
@@ -357,8 +359,14 @@ function StageRunner({ stage, stageIndex, totalStages, onAdvance }: StageRunnerP
                 return (
                   <li
                     key={word}
-                    className="flex items-baseline justify-between text-sm"
+                    className="flex items-baseline gap-2 text-sm"
                   >
+                    <span
+                      className="text-xs text-[color:var(--muted)] tracking-wider tabular-nums shrink-0 w-10"
+                      style={{ opacity: isFound ? 0.45 : 0.8 }}
+                    >
+                      {"·".repeat(sylCount)} {sylCount}
+                    </span>
                     <span
                       className="font-medium"
                       style={{
@@ -371,12 +379,6 @@ function StageRunner({ stage, stageIndex, totalStages, onAdvance }: StageRunnerP
                       }}
                     >
                       {word}
-                    </span>
-                    <span
-                      className="text-xs text-[color:var(--muted)] tracking-wider"
-                      style={{ opacity: isFound ? 0.45 : 0.8 }}
-                    >
-                      {"·".repeat(sylCount)} {sylCount}
                     </span>
                   </li>
                 );
@@ -445,7 +447,7 @@ function StageRunner({ stage, stageIndex, totalStages, onAdvance }: StageRunnerP
           {discovered.length === 0 ? (
             <p className="text-sm text-[color:var(--muted)]">아직 없음</p>
           ) : (
-            <ul className="space-y-2">
+            <ul className="space-y-2 max-h-72 overflow-y-auto pr-1">
               {discovered
                 .slice()
                 .reverse()
@@ -484,8 +486,13 @@ function StageRunner({ stage, stageIndex, totalStages, onAdvance }: StageRunnerP
                       )}
                       {w?.meaningEn && (
                         <p
-                          className="text-xs text-[color:var(--accent)] mt-0.5 italic"
-                          style={{ fontFamily: "var(--font-sans)" }}
+                          className="text-[11px] mt-0.5 not-italic tracking-wide"
+                          style={{
+                            fontFamily: "var(--font-sans)",
+                            color: "var(--accent)",
+                            fontWeight: 500,
+                            letterSpacing: "0.01em",
+                          }}
                         >
                           {w.meaningEn}
                         </p>
@@ -505,8 +512,52 @@ function StageRunner({ stage, stageIndex, totalStages, onAdvance }: StageRunnerP
   );
 }
 
+function LandingScreen({ onStart }: { onStart: () => void }) {
+  return (
+    <div className="flex-1 flex items-center justify-center w-full px-6 py-16">
+      <div className="flex flex-col items-center text-center gap-6 max-w-md">
+        <span className="text-xs tracking-[0.3em] uppercase text-[color:var(--muted)]">
+          Hangul Alcyone
+        </span>
+        <h1
+          className="text-5xl sm:text-6xl font-bold leading-tight"
+          style={{ fontFamily: "var(--font-serif)" }}
+        >
+          한글 알키오네
+        </h1>
+        <p
+          className="text-base sm:text-lg leading-relaxed text-[color:var(--muted)]"
+          style={{ fontFamily: "var(--font-serif)" }}
+        >
+          처음 보는 사람처럼,<br />
+          음절을 다시 발견하는 퍼즐.
+        </p>
+        <button
+          onClick={onStart}
+          className="mt-2 px-10 py-3 rounded-full text-base font-medium transition-transform cursor-pointer hover:scale-[1.02]"
+          style={{
+            background: "var(--accent)",
+            color: "#f3ead4",
+            fontFamily: "var(--font-serif)",
+            letterSpacing: "0.08em",
+          }}
+        >
+          시작
+        </button>
+        <p className="text-xs text-[color:var(--muted)] mt-2 leading-relaxed">
+          4단계 · 인접한 두 음절을 바꿔 단어를 만드세요
+        </p>
+      </div>
+    </div>
+  );
+}
+
 export default function GameBoard() {
+  const [started, setStarted] = useState(false);
   const [stageIndex, setStageIndex] = useState(0);
+  if (!started) {
+    return <LandingScreen onStart={() => setStarted(true)} />;
+  }
   const stage = stages[stageIndex];
   return (
     <StageRunner
