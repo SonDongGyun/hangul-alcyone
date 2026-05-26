@@ -484,19 +484,6 @@ function StageRunner({ stage, stageIndex, totalStages, onAdvance }: StageRunnerP
                           {w.meaning}
                         </p>
                       )}
-                      {w?.meaningEn && (
-                        <p
-                          className="text-[11px] mt-0.5 not-italic tracking-wide"
-                          style={{
-                            fontFamily: "var(--font-sans)",
-                            color: "var(--accent)",
-                            fontWeight: 500,
-                            letterSpacing: "0.01em",
-                          }}
-                        >
-                          {w.meaningEn}
-                        </p>
-                      )}
                     </li>
                   );
                 })}
