@@ -23,6 +23,8 @@ export interface Stage {
   /** Row-major array of syllable strings. Empty string means empty cell. */
   board: string[];
   targetWords?: string[];
+  /** Syllables drawn (round-robin) to refill the top of a column after gravity. */
+  refillPool: string[];
 }
 
 export interface Cell {

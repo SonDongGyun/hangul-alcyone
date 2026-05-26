@@ -1,4 +1,5 @@
 import type { Stage } from "./types";
+import { detectMatches } from "./match";
 
 const COLS = 6;
 const ROWS = 8;
@@ -13,48 +14,52 @@ function place(board: string[], col: number, row: number, syllables: string[], d
   });
 }
 
+function set(board: string[], col: number, row: number, s: string): void {
+  board[row * COLS + col] = s;
+}
+
 /**
- * Stage 1: pre-seeded with a handful of formed and almost-formed words.
- * Purpose is the first "ah-ha" moment within 30 seconds of opening the app.
- * Pre-formed matches: 사과나무 (vertical), 김치, 호랑이, 나비
- * Almost-formed: 단풍 (단,풍 are placed but separated by one swap distance)
+ * Stage 1 — 첫 발견.
+ * 단 하나의 pre-formed 단어(사과나무)로 시작해서, 인접 스왑 한 번으로 닿을 수 있는
+ * 단어 5개를 자유 음절 사이에 흩어 놓는다. 자유 음절은 무작위가 아니라 다른 단어의
+ * 일부라서, 매칭 후 낙하·보충이 일어나면 연쇄로 닿을 가능성을 남긴다.
  */
 function buildStage1(): Stage {
   const board = empty();
 
-  // 사과나무 vertical at col=1, row=0..3 — biggest "wow"
-  place(board, 1, 0, ["사", "과", "나", "무"], "v");
+  place(board, 1, 3, ["사", "과", "나", "무"], "v");
 
-  // 김치 horizontal at col=3, row=1
-  place(board, 3, 1, ["김", "치"], "h");
+  set(board, 1, 0, "토");
+  set(board, 2, 0, "구");
+  set(board, 3, 0, "끼");
 
-  // 호랑이 horizontal at col=2, row=5
-  place(board, 2, 5, ["호", "랑", "이"], "h");
+  set(board, 0, 1, "하");
+  set(board, 1, 1, "양");
+  set(board, 2, 1, "늘");
+  set(board, 3, 1, "의");
 
-  // 나비 horizontal at col=0, row=7
-  place(board, 0, 7, ["나", "비"], "h");
+  set(board, 0, 2, "김");
+  set(board, 1, 2, "풍");
+  set(board, 2, 2, "치");
 
-  // 단풍 with a swap-needed: 단 at (5,2), 풍 at (5,4) — one swap with (5,3)
-  board[2 * COLS + 5] = "단";
-  board[4 * COLS + 5] = "풍";
+  set(board, 0, 0, "장");
 
-  // Scattered syllables for player exploration
-  const scatter: Array<[number, number, string]> = [
-    [0, 0, "구"], [5, 0, "름"],
-    [3, 0, "하"], [4, 0, "늘"],
-    [0, 2, "달"], [3, 2, "빛"],
-    [0, 4, "강"], [2, 4, "물"],
-    [3, 4, "고"], [4, 4, "양"],
-    [3, 5, "토"], [4, 5, "끼"],
-    [0, 5, "바"], [1, 5, "다"],
-    [5, 5, "이"],
-    [2, 6, "거"], [3, 6, "북"],
-    [3, 7, "햇"], [4, 7, "빛"],
-    [5, 7, "별"],
-    [0, 6, "단"], [1, 6, "풍"],
-  ];
-  for (const [c, r, s] of scatter) {
-    if (!board[r * COLS + c]) board[r * COLS + c] = s;
+  set(board, 3, 4, "바");
+  set(board, 4, 4, "이");
+  set(board, 5, 4, "다");
+
+  set(board, 3, 6, "별");
+  set(board, 4, 6, "리");
+  set(board, 5, 6, "빛");
+
+  const matches = detectMatches(board, COLS, ROWS);
+  if (process.env.NODE_ENV !== "production") {
+    if (matches.length !== 1 || matches[0].word !== "사과나무") {
+      const found = matches.map((m) => m.word).join(", ");
+      throw new Error(
+        `stage1 invariant broken: expected exactly [사과나무], found [${found}]`,
+      );
+    }
   }
 
   return {
@@ -63,6 +68,16 @@ function buildStage1(): Stage {
     cols: COLS,
     rows: ROWS,
     board,
+    refillPool: [
+      "구", "름", "달", "빛", "별",
+      "바", "다", "강", "물",
+      "호", "랑", "이",
+      "고", "양", "풍",
+      "단", "나", "무",
+      "김", "치", "밥",
+      "하", "늘", "색",
+      "의", "자", "거", "울",
+    ],
   };
 }
 
