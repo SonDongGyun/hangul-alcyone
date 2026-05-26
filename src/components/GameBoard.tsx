@@ -1,10 +1,10 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { stage1 } from "@/game/stage";
+import { stages } from "@/game/stage";
 import { detectMatches, matchKey } from "@/game/match";
 import { wordIndex } from "@/game/dictionary";
-import { CATEGORY_LABEL, type Cell, type Match } from "@/game/types";
+import { CATEGORY_LABEL, type Cell, type Match, type Stage } from "@/game/types";
 
 interface Discovered {
   word: string;
@@ -83,9 +83,18 @@ function refillTop(
   return { board: out, nextIndex: idx };
 }
 
-export default function GameBoard() {
-  const { cols, rows } = stage1;
-  const [board, setBoard] = useState<string[]>(stage1.board);
+interface StageRunnerProps {
+  stage: Stage;
+  stageIndex: number;
+  totalStages: number;
+  onAdvance: () => void;
+}
+
+function StageRunner({ stage, stageIndex, totalStages, onAdvance }: StageRunnerProps) {
+  const { cols, rows, refillPool } = stage;
+  const targetWords = stage.targetWords ?? [];
+
+  const [board, setBoard] = useState<string[]>(stage.board);
   const [selected, setSelected] = useState<Cell | null>(null);
   const [discovered, setDiscovered] = useState<Discovered[]>([]);
   const [activeMatches, setActiveMatches] = useState<Match[]>([]);
@@ -97,7 +106,7 @@ export default function GameBoard() {
   const isResolving = useRef(false);
 
   useEffect(() => {
-    const initial = detectMatches(stage1.board, cols, rows);
+    const initial = detectMatches(stage.board, cols, rows);
     setActiveMatches(initial);
     initial.forEach((m) => knownMatchKeys.current.add(matchKey(m)));
     const mult = multiplierFor(1);
@@ -110,7 +119,7 @@ export default function GameBoard() {
         points: Math.round(basePointsFor(m.word) * mult),
       })),
     );
-  }, [cols, rows]);
+  }, [stage.board, cols, rows]);
 
   useEffect(() => {
     return () => {
@@ -125,6 +134,16 @@ export default function GameBoard() {
     );
     return s;
   }, [activeMatches]);
+
+  const discoveredSet = useMemo(
+    () => new Set(discovered.map((d) => d.word)),
+    [discovered],
+  );
+
+  const foundCount = targetWords.filter((w) => discoveredSet.has(w)).length;
+  const allFound =
+    targetWords.length > 0 && foundCount === targetWords.length;
+  const isLastStage = stageIndex >= totalStages - 1;
 
   const addDiscovered = useCallback((matches: Match[], depth: number) => {
     if (!matches.length) return;
@@ -153,7 +172,7 @@ export default function GameBoard() {
         dropped,
         cols,
         rows,
-        stage1.refillPool,
+        refillPool,
         refillIndex.current,
       );
       refillIndex.current = nextIndex;
@@ -177,7 +196,7 @@ export default function GameBoard() {
         );
       }, CLEAR_PAUSE_MS);
     },
-    [cols, rows, addDiscovered],
+    [cols, rows, refillPool, addDiscovered],
   );
 
   const tryMatchOrRevert = useCallback(
@@ -246,14 +265,19 @@ export default function GameBoard() {
     <div className="flex flex-col lg:flex-row gap-8 items-start w-full max-w-5xl mx-auto px-6 py-8">
       <section className="flex-1 w-full">
         <header className="mb-4">
-          <h1
-            className="text-3xl font-bold"
-            style={{ fontFamily: "var(--font-serif)" }}
-          >
-            한글 알키오네
-          </h1>
+          <div className="flex items-baseline justify-between gap-3 flex-wrap">
+            <h1
+              className="text-3xl font-bold"
+              style={{ fontFamily: "var(--font-serif)" }}
+            >
+              한글 알키오네
+            </h1>
+            <span className="text-xs tracking-wide uppercase text-[color:var(--muted)]">
+              스테이지 {stageIndex + 1} / {totalStages}
+            </span>
+          </div>
           <p className="text-sm text-[color:var(--muted)] mt-1">
-            {stage1.name} · 인접한 두 음절을 클릭해 단어를 만드세요
+            {stage.name} · 인접한 두 음절을 클릭해 단어를 만드세요
           </p>
         </header>
 
@@ -305,8 +329,97 @@ export default function GameBoard() {
         </div>
       </section>
 
-      <aside className="w-full lg:w-72 lg:sticky lg:top-8">
-        <div className="rounded-lg border p-4" style={{ borderColor: "var(--tile-border)", background: "var(--discovered-bg)" }}>
+      <aside className="w-full lg:w-72 lg:sticky lg:top-8 space-y-4">
+        <div
+          className="rounded-lg border p-4"
+          style={{
+            borderColor: "var(--tile-border)",
+            background: "var(--discovered-bg)",
+          }}
+        >
+          <div className="flex items-baseline justify-between mb-3">
+            <h2 className="text-sm font-medium tracking-wide uppercase text-[color:var(--muted)]">
+              발견할 단어
+            </h2>
+            <span className="text-xs text-[color:var(--muted)]">
+              {foundCount} / {targetWords.length}
+            </span>
+          </div>
+
+          {targetWords.length === 0 ? (
+            <p className="text-sm text-[color:var(--muted)]">목표 없음</p>
+          ) : (
+            <ul className="space-y-1.5">
+              {targetWords.map((word) => {
+                const entry = wordIndex.get(word);
+                const sylCount = entry?.syllables.length ?? word.length;
+                const isFound = discoveredSet.has(word);
+                return (
+                  <li
+                    key={word}
+                    className="flex items-baseline justify-between text-sm"
+                  >
+                    <span
+                      className="font-medium"
+                      style={{
+                        fontFamily: "var(--font-serif)",
+                        textDecoration: isFound ? "line-through" : "none",
+                        color: isFound
+                          ? "var(--muted)"
+                          : "var(--tile-text)",
+                        opacity: isFound ? 0.45 : 1,
+                      }}
+                    >
+                      {word}
+                    </span>
+                    <span
+                      className="text-xs text-[color:var(--muted)] tracking-wider"
+                      style={{ opacity: isFound ? 0.45 : 0.8 }}
+                    >
+                      {"·".repeat(sylCount)} {sylCount}
+                    </span>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+
+          {allFound && (
+            <div
+              className="mt-4 pt-4 border-t"
+              style={{ borderColor: "var(--tile-border)" }}
+            >
+              {isLastStage ? (
+                <p
+                  className="text-sm text-[color:var(--accent)]"
+                  style={{ fontFamily: "var(--font-serif)" }}
+                >
+                  모든 단계를 발견했습니다.
+                </p>
+              ) : (
+                <button
+                  onClick={onAdvance}
+                  className="w-full py-2 rounded-md text-sm font-medium transition-colors cursor-pointer"
+                  style={{
+                    background: "var(--accent)",
+                    color: "#f3ead4",
+                    fontFamily: "var(--font-serif)",
+                  }}
+                >
+                  다음 스테이지로 →
+                </button>
+              )}
+            </div>
+          )}
+        </div>
+
+        <div
+          className="rounded-lg border p-4"
+          style={{
+            borderColor: "var(--tile-border)",
+            background: "var(--discovered-bg)",
+          }}
+        >
           <div className="flex items-baseline justify-between mb-3">
             <h2 className="text-sm font-medium tracking-wide uppercase text-[color:var(--muted)]">
               발견한 단어
@@ -320,7 +433,10 @@ export default function GameBoard() {
                   연쇄 ×{comboDepth} · {multiplierFor(comboDepth).toFixed(1)}배
                 </span>
               )}
-              <span className="text-2xl font-bold" style={{ fontFamily: "var(--font-serif)" }}>
+              <span
+                className="text-2xl font-bold"
+                style={{ fontFamily: "var(--font-serif)" }}
+              >
                 {score}
               </span>
             </div>
@@ -330,56 +446,75 @@ export default function GameBoard() {
             <p className="text-sm text-[color:var(--muted)]">아직 없음</p>
           ) : (
             <ul className="space-y-2">
-              {discovered.slice().reverse().map((d) => {
-                const w = wordIndex.get(d.word);
-                return (
-                  <li key={d.word} className="text-sm">
-                    <div className="flex items-baseline justify-between gap-2">
-                      <span
-                        className="text-base font-medium"
-                        style={{ fontFamily: "var(--font-serif)" }}
-                      >
-                        {d.word}
-                      </span>
-                      <span className="flex items-baseline gap-1.5 text-xs">
-                        <span className="text-[color:var(--muted)]">+{d.points}</span>
-                        {d.depth >= 2 && (
-                          <span
-                            className="text-[color:var(--accent)]"
-                            style={{ fontFamily: "var(--font-serif)" }}
-                          >
-                            ×{d.multiplier.toFixed(1)}
+              {discovered
+                .slice()
+                .reverse()
+                .map((d) => {
+                  const w = wordIndex.get(d.word);
+                  return (
+                    <li key={d.word} className="text-sm">
+                      <div className="flex items-baseline justify-between gap-2">
+                        <span
+                          className="text-base font-medium"
+                          style={{ fontFamily: "var(--font-serif)" }}
+                        >
+                          {d.word}
+                        </span>
+                        <span className="flex items-baseline gap-1.5 text-xs">
+                          <span className="text-[color:var(--muted)]">
+                            +{d.points}
                           </span>
-                        )}
-                      </span>
-                    </div>
-                    <div className="text-[10px] uppercase tracking-wide text-[color:var(--muted)] mt-0.5">
-                      {w?.categories.map((c) => CATEGORY_LABEL[c]).join(" · ")}
-                    </div>
-                    {w?.meaning && (
-                      <p className="text-xs text-[color:var(--muted)] mt-0.5">
-                        {w.meaning}
-                      </p>
-                    )}
-                    {w?.meaningEn && (
-                      <p
-                        className="text-xs text-[color:var(--accent)] mt-0.5 italic"
-                        style={{ fontFamily: "var(--font-sans)" }}
-                      >
-                        {w.meaningEn}
-                      </p>
-                    )}
-                  </li>
-                );
-              })}
+                          {d.depth >= 2 && (
+                            <span
+                              className="text-[color:var(--accent)]"
+                              style={{ fontFamily: "var(--font-serif)" }}
+                            >
+                              ×{d.multiplier.toFixed(1)}
+                            </span>
+                          )}
+                        </span>
+                      </div>
+                      <div className="text-[10px] uppercase tracking-wide text-[color:var(--muted)] mt-0.5">
+                        {w?.categories.map((c) => CATEGORY_LABEL[c]).join(" · ")}
+                      </div>
+                      {w?.meaning && (
+                        <p className="text-xs text-[color:var(--muted)] mt-0.5">
+                          {w.meaning}
+                        </p>
+                      )}
+                      {w?.meaningEn && (
+                        <p
+                          className="text-xs text-[color:var(--accent)] mt-0.5 italic"
+                          style={{ fontFamily: "var(--font-sans)" }}
+                        >
+                          {w.meaningEn}
+                        </p>
+                      )}
+                    </li>
+                  );
+                })}
             </ul>
           )}
         </div>
 
-        <p className="text-xs text-[color:var(--muted)] mt-4 leading-relaxed">
+        <p className="text-xs text-[color:var(--muted)] leading-relaxed">
           MVP D1~D4 · 매칭 후 음절이 비고, 위에서 채워지며 연쇄가 일어납니다.
         </p>
       </aside>
     </div>
+  );
+}
+
+export default function GameBoard() {
+  const [stageIndex, setStageIndex] = useState(0);
+  const stage = stages[stageIndex];
+  return (
+    <StageRunner
+      key={stageIndex}
+      stage={stage}
+      stageIndex={stageIndex}
+      totalStages={stages.length}
+      onAdvance={() => setStageIndex((i) => Math.min(i + 1, stages.length - 1))}
+    />
   );
 }
