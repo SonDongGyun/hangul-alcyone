@@ -1,5 +1,7 @@
 # 한글 알키오네 (Hangul Alcyone)
 
+[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2FSonDongGyun%2Fhangul-alcyone)
+
 한국어의 형태 결합을 화학 반응처럼 다루는 2D 퍼즐 게임. 본 레포는 Vercel 배포용 웹 프로토타입.
 
 ## 본질
@@ -57,9 +59,17 @@ npm run build
 npm run lint
 ```
 
-## 배포
+## 배포 (Vercel)
 
-GitHub에 push되어 있고 Vercel과 연결되면 자동 배포. 별도 설정 파일 불필요.
+**원클릭:** 상단의 "Deploy with Vercel" 버튼.
+
+**대시보드 수동:**
+1. https://vercel.com/new 접속
+2. GitHub 처음이면 권한 부여
+3. `SonDongGyun/hangul-alcyone` Import → Deploy
+
+`next.config.ts` 외 추가 설정 파일(`vercel.json` 등) 없이 자동 감지됨.
+이후 main 푸시마다 자동 재배포.
 
 ## 디자인 원칙
 
