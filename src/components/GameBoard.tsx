@@ -9,10 +9,22 @@ import { CATEGORY_LABEL, type Cell, type Match } from "@/game/types";
 interface Discovered {
   word: string;
   at: number;
+  depth: number;
+  multiplier: number;
+  points: number;
 }
 
 const CHAIN_DELAY_MS = 480;
 const CLEAR_PAUSE_MS = 220;
+
+const COMBO_MULTIPLIER = [1.0, 1.0, 1.5, 2.0, 3.0, 5.0];
+function multiplierFor(depth: number): number {
+  return COMBO_MULTIPLIER[Math.min(depth, COMBO_MULTIPLIER.length - 1)];
+}
+function basePointsFor(word: string): number {
+  const w = wordIndex.get(word);
+  return w ? 50 + (w.syllables.length - 2) * 50 : 0;
+}
 
 function cellKey(c: number, r: number) {
   return `${c}:${r}`;
@@ -88,7 +100,16 @@ export default function GameBoard() {
     const initial = detectMatches(stage1.board, cols, rows);
     setActiveMatches(initial);
     initial.forEach((m) => knownMatchKeys.current.add(matchKey(m)));
-    setDiscovered(initial.map((m) => ({ word: m.word, at: Date.now() })));
+    const mult = multiplierFor(1);
+    setDiscovered(
+      initial.map((m) => ({
+        word: m.word,
+        at: Date.now(),
+        depth: 1,
+        multiplier: mult,
+        points: Math.round(basePointsFor(m.word) * mult),
+      })),
+    );
   }, [cols, rows]);
 
   useEffect(() => {
@@ -105,13 +126,20 @@ export default function GameBoard() {
     return s;
   }, [activeMatches]);
 
-  const addDiscovered = useCallback((matches: Match[]) => {
+  const addDiscovered = useCallback((matches: Match[], depth: number) => {
     if (!matches.length) return;
+    const mult = multiplierFor(depth);
     setDiscovered((d) => {
       const seen = new Set(d.map((x) => x.word));
       const adds = matches
         .filter((m) => !seen.has(m.word))
-        .map((m) => ({ word: m.word, at: Date.now() }));
+        .map((m) => ({
+          word: m.word,
+          at: Date.now(),
+          depth,
+          multiplier: mult,
+          points: Math.round(basePointsFor(m.word) * mult),
+        }));
       return adds.length ? [...d, ...adds] : d;
     });
   }, []);
@@ -141,7 +169,7 @@ export default function GameBoard() {
         }
         newMatches.forEach((m) => knownMatchKeys.current.add(matchKey(m)));
         setActiveMatches(newMatches);
-        addDiscovered(newMatches);
+        addDiscovered(newMatches, depth + 1);
         setComboDepth(depth + 1);
         chainTimer.current = window.setTimeout(
           () => runChainStep(filled, newMatches, depth + 1),
@@ -166,7 +194,7 @@ export default function GameBoard() {
       fresh.forEach((m) => knownMatchKeys.current.add(matchKey(m)));
       setBoard(next);
       setActiveMatches(all);
-      addDiscovered(fresh);
+      addDiscovered(fresh, 1);
       isResolving.current = true;
       setComboDepth(1);
 
@@ -210,11 +238,7 @@ export default function GameBoard() {
   );
 
   const score = useMemo(
-    () =>
-      discovered.reduce((s, d) => {
-        const w = wordIndex.get(d.word);
-        return s + (w ? 50 + (w.syllables.length - 2) * 50 : 0);
-      }, 0),
+    () => discovered.reduce((s, d) => s + d.points, 0),
     [discovered],
   );
 
@@ -293,7 +317,7 @@ export default function GameBoard() {
                   className="text-xs tracking-wide text-[color:var(--accent)]"
                   style={{ fontFamily: "var(--font-serif)" }}
                 >
-                  연쇄 ×{comboDepth}
+                  연쇄 ×{comboDepth} · {multiplierFor(comboDepth).toFixed(1)}배
                 </span>
               )}
               <span className="text-2xl font-bold" style={{ fontFamily: "var(--font-serif)" }}>
@@ -310,16 +334,27 @@ export default function GameBoard() {
                 const w = wordIndex.get(d.word);
                 return (
                   <li key={d.word} className="text-sm">
-                    <div className="flex items-baseline justify-between">
+                    <div className="flex items-baseline justify-between gap-2">
                       <span
                         className="text-base font-medium"
                         style={{ fontFamily: "var(--font-serif)" }}
                       >
                         {d.word}
                       </span>
-                      <span className="text-xs text-[color:var(--muted)]">
-                        {w?.categories.map((c) => CATEGORY_LABEL[c]).join("·")}
+                      <span className="flex items-baseline gap-1.5 text-xs">
+                        <span className="text-[color:var(--muted)]">+{d.points}</span>
+                        {d.depth >= 2 && (
+                          <span
+                            className="text-[color:var(--accent)]"
+                            style={{ fontFamily: "var(--font-serif)" }}
+                          >
+                            ×{d.multiplier.toFixed(1)}
+                          </span>
+                        )}
                       </span>
+                    </div>
+                    <div className="text-[10px] uppercase tracking-wide text-[color:var(--muted)] mt-0.5">
+                      {w?.categories.map((c) => CATEGORY_LABEL[c]).join(" · ")}
                     </div>
                     {w?.meaning && (
                       <p className="text-xs text-[color:var(--muted)] mt-0.5">
