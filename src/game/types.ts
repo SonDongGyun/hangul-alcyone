@@ -13,6 +13,7 @@ export interface WordEntry {
   categories: CategoryId[];
   frequency: 1 | 2 | 3 | 4 | 5;
   meaning?: string;
+  meaningEn?: string;
 }
 
 export interface Stage {

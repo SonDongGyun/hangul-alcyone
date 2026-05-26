@@ -326,6 +326,14 @@ export default function GameBoard() {
                         {w.meaning}
                       </p>
                     )}
+                    {w?.meaningEn && (
+                      <p
+                        className="text-xs text-[color:var(--accent)] mt-0.5 italic"
+                        style={{ fontFamily: "var(--font-sans)" }}
+                      >
+                        {w.meaningEn}
+                      </p>
+                    )}
                   </li>
                 );
               })}
